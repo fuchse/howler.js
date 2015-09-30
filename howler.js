@@ -244,6 +244,8 @@
 
     // setup event functions
     self._onload = [o.onload || function() {}];
+    self._onunload = [o.onunload || function() {}];
+    self._onloadprogress = [o.onloadprogress || function() {}];
     self._onloaderror = [o.onloaderror || function() {}];
     self._onend = [o.onend || function() {}];
     self._onpause = [o.onpause || function() {}];
@@ -374,6 +376,15 @@
       }
 
       return self;
+    },
+
+    loadAbort: function() {
+        try {
+            this._xhr.abort();
+        } catch(e) {
+        } finally {
+            this.unload();
+        }
     },
 
     /**
@@ -1190,6 +1201,8 @@
         Howler._howls.splice(index, 1);
       }
 
+      self.on('unload');
+
       // delete this sound from the cache
       delete cache[self._src];
       self = null;
@@ -1215,7 +1228,7 @@
         loadSound(obj);
         return;
       }
-      
+
       if (/^data:[^;]+;base64,/.test(url)) {
         // Decode base64 data-URIs because some browsers cannot load data-URIs with XMLHttpRequest.
         var data = atob(url.split(',')[1]);
@@ -1223,17 +1236,24 @@
         for (var i=0; i<data.length; ++i) {
           dataView[i] = data.charCodeAt(i);
         }
-        
+
         decodeAudioData(dataView.buffer, obj, url);
       } else {
         // load the buffer from the URL
-        var xhr = new XMLHttpRequest();
-        xhr.open('GET', url, true);
-        xhr.responseType = 'arraybuffer';
-        xhr.onload = function() {
-          decodeAudioData(xhr.response, obj, url);
+        obj._xhr = new XMLHttpRequest();
+        obj._xhr.open('GET', url, true);
+        obj._xhr.responseType = 'arraybuffer';
+        obj._xhr.onload = function() {
+          decodeAudioData(obj._xhr.response, obj, url);
+        }
+        obj._xhr.onprogress = function(progressEvent) {
+            if (progressEvent.lengthComputable) {
+                obj.bytesLoaded = progressEvent.loaded;
+                obj.bytesTotal = progressEvent.total;
+                obj.on('loadprogress');
+            }
         };
-        xhr.onerror = function() {
+        obj._xhr.onerror = function() {
           // if there is an error, switch the sound to HTML Audio
           if (obj._webAudio) {
             obj._buffer = true;
@@ -1245,9 +1265,9 @@
           }
         };
         try {
-          xhr.send();
+          obj._xhr.send();
         } catch (e) {
-          xhr.onerror();
+          obj._xhr.onerror();
         }
       }
     };
